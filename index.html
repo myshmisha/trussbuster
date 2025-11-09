@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Truss Drawer (Grid + Snap)</title>
+<title>Truss Drawer — Click & Drag</title>
 <style>
   body { font-family:sans-serif; text-align:center; background:#fafafa; margin:0; }
   #toolbar { margin:10px; }
@@ -12,26 +12,24 @@
 </style>
 </head>
 <body>
-  <h2>Interactive Truss Drawer (Grid Snap)</h2>
-  <div id="toolbar">
-    <button id="add-node">Add Node</button>
-    <button id="add-member">Add Member</button>
-    <button id="clear">Clear</button>
-  </div>
-  <div id="canvas-wrapper">
-    <svg id="canvas" width="800" height="500"></svg>
-  </div>
+<h2>Interactive Truss Drawer (Click & Drag with Grid Snap)</h2>
+<div id="toolbar">
+  <button id="clear">Clear</button>
+</div>
+<div id="canvas-wrapper">
+  <svg id="canvas" width="800" height="500"></svg>
+</div>
 
 <script>
 const canvas = document.getElementById("canvas");
-const GRID = 20; // pixels per grid step
-
+const GRID = 20;
 let nodes = [];
 let members = [];
-let mode = null;
-let selectedNode = null;
+let drawing = false;
+let startNode = null;
+let tempLine = null;
 
-// --- draw grid ---
+// --- grid setup ---
 function drawGrid() {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   for (let x = 0; x <= w; x += GRID) {
@@ -49,13 +47,18 @@ function drawGrid() {
     canvas.appendChild(line);
   }
 }
+drawGrid();
+const gridCount = canvas.childNodes.length;
 
-// --- redraw members and nodes ---
+// --- snap helper ---
+function snap(v) { return Math.round(v / GRID) * GRID; }
+
+// --- draw everything except grid ---
 function redraw() {
-  // remove all except grid
-  while (canvas.lastChild && canvas.childNodes.length > gridCount)
+  while (canvas.childNodes.length > gridCount)
     canvas.removeChild(canvas.lastChild);
-  // members
+
+  // draw members
   for (const m of members) {
     const n1 = nodes[m.n1], n2 = nodes[m.n2];
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -64,50 +67,66 @@ function redraw() {
     line.setAttribute("stroke", "#000"); line.setAttribute("stroke-width", "2");
     canvas.appendChild(line);
   }
-  // nodes
+
+  // draw nodes
   for (const n of nodes) {
     const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     c.setAttribute("cx", n.x); c.setAttribute("cy", n.y);
-    c.setAttribute("r", 5);
-    c.setAttribute("fill", selectedNode && selectedNode.id===n.id ? "#00f" : "#d00");
+    c.setAttribute("r", 4); c.setAttribute("fill", "#d00");
     canvas.appendChild(c);
   }
 }
 
-// --- snap function ---
-function snap(v) { return Math.round(v / GRID) * GRID; }
+// --- event handlers ---
+canvas.addEventListener("mousedown", e => {
+  const x = snap(e.offsetX), y = snap(e.offsetY);
+  startNode = getOrCreateNode(x, y);
+  drawing = true;
 
-// --- click handler ---
-canvas.addEventListener("click", evt => {
-  const x = snap(evt.offsetX), y = snap(evt.offsetY);
-  if (mode === "add-node") {
-    if (!nodes.some(n => n.x===x && n.y===y)) {
-      nodes.push({ id:nodes.length, x, y });
-    }
-  } else if (mode === "add-member") {
-    // find nearest existing node
-    const hit = nodes.find(n => Math.abs(n.x - x) < 8 && Math.abs(n.y - y) < 8);
-    if (hit) {
-      if (!selectedNode) selectedNode = hit;
-      else {
-        if (selectedNode.id !== hit.id) {
-          members.push({ n1:selectedNode.id, n2:hit.id });
-        }
-        selectedNode = null;
-      }
-    }
+  // show temporary line
+  tempLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  tempLine.setAttribute("x1", x); tempLine.setAttribute("y1", y);
+  tempLine.setAttribute("x2", x); tempLine.setAttribute("y2", y);
+  tempLine.setAttribute("stroke", "#00f");
+  tempLine.setAttribute("stroke-width", "1.5");
+  canvas.appendChild(tempLine);
+});
+
+canvas.addEventListener("mousemove", e => {
+  if (!drawing || !tempLine) return;
+  tempLine.setAttribute("x2", snap(e.offsetX));
+  tempLine.setAttribute("y2", snap(e.offsetY));
+});
+
+canvas.addEventListener("mouseup", e => {
+  if (!drawing) return;
+  drawing = false;
+  const endNode = getOrCreateNode(snap(e.offsetX), snap(e.offsetY));
+  if (startNode && endNode && startNode.id !== endNode.id) {
+    members.push({ n1:startNode.id, n2:endNode.id });
   }
+  if (tempLine) canvas.removeChild(tempLine);
+  tempLine = null;
   redraw();
 });
 
-// --- toolbar actions ---
-document.getElementById("add-node").onclick = () => { mode="add-node"; selectedNode=null; };
-document.getElementById("add-member").onclick = () => { mode="add-member"; selectedNode=null; };
-document.getElementById("clear").onclick = () => { nodes=[]; members=[]; selectedNode=null; redraw(); };
+// --- utility ---
+function getOrCreateNode(x, y) {
+  let existing = nodes.find(n => n.x===x && n.y===y);
+  if (existing) return existing;
+  const node = { id:nodes.length, x, y };
+  nodes.push(node);
+  return node;
+}
 
-// init grid
-drawGrid();
-const gridCount = canvas.childNodes.length; // remember grid line count
+// --- clear ---
+document.getElementById("clear").onclick = () => {
+  nodes = [];
+  members = [];
+  redraw();
+};
+
+redraw();
 </script>
 </body>
 </html>
