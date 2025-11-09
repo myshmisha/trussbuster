@@ -1,11 +1,21 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Truss Solver</title>
+  <title>Interactive Truss Drawer & Solver</title>
+
   <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="https://pyscript.net/releases/2025.1.1/core.css" />
-  <script type="module" src="https://pyscript.net/releases/2025.1.1/core.js"></script>
+
+  <!-- PyScript: use stable latest bundle -->
+  <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css" />
+  <script defer src="https://pyscript.net/latest/pyscript.js"></script>
+
+  <!-- PyScript config -->
+  <py-config>
+    packages = ["numpy"]
+    [[fetch]]
+    files = ["truss.py"]
+  </py-config>
 </head>
 <body>
   <h2>Interactive Truss Drawer & Solver</h2>
@@ -17,16 +27,9 @@
 
   <svg id="canvas" width="800" height="400"></svg>
 
-  <py-config>
-    packages = ["numpy"]
-    [[fetch]]
-    files = ["truss.py"]
-  </py-config>
-
   <py-script>
 from js import document, console
 from truss import Node, Member, solve_truss
-import json
 
 nodes = []
 members = []
@@ -40,13 +43,13 @@ def redraw():
     for m in members:
         n1 = next(n for n in nodes if n.id == m.n1)
         n2 = next(n for n in nodes if n.id == m.n2)
-        line = document.createElementNS("http://www.w3.org/2000/svg","line")
+        line = document.createElementNS("http://www.w3.org/2000/svg", "line")
         line.setAttribute("x1", n1.x); line.setAttribute("y1", n1.y)
         line.setAttribute("x2", n2.x); line.setAttribute("y2", n2.y)
         line.setAttribute("stroke", "#000"); line.setAttribute("stroke-width", "2")
         canvas.appendChild(line)
     for n in nodes:
-        c = document.createElementNS("http://www.w3.org/2000/svg","circle")
+        c = document.createElementNS("http://www.w3.org/2000/svg", "circle")
         c.setAttribute("cx", n.x); c.setAttribute("cy", n.y)
         c.setAttribute("r", 6); c.setAttribute("fill", "red")
         c.setAttribute("data-id", n.id)
@@ -60,7 +63,8 @@ def on_click(evt):
     elif mode == "add-member":
         hit = None
         for n in nodes:
-            if (abs(evt.offsetX-n.x)<8 and abs(evt.offsetY-n.y)<8): hit = n
+            if abs(evt.offsetX-n.x) < 8 and abs(evt.offsetY-n.y) < 8:
+                hit = n
         if hit:
             if selected is None:
                 selected = hit
@@ -71,24 +75,32 @@ def on_click(evt):
 
 canvas.addEventListener("click", on_click)
 
-def set_mode(m): 
-    global mode; mode = m; console.log("mode:", m)
+def set_mode(m):
+    global mode
+    mode = m
+    console.log("mode:", m)
 
-document.getElementById("add-node").addEventListener("click", lambda e: set_mode("add-node"))
-document.getElementById("add-member").addEventListener("click", lambda e: set_mode("add-member"))
+document.getElementById("add-node").addEventListener(
+    "click", lambda e: set_mode("add-node")
+)
+document.getElementById("add-member").addEventListener(
+    "click", lambda e: set_mode("add-member")
+)
 
 def do_solve(event=None):
-    if len(nodes)<2: return
+    if len(nodes) < 2:
+        return
     results = solve_truss(nodes, members)
-    # color code by sign
-    for m,f in results.items():
-        color = "green" if f>0 else "red"
+    redraw()
+    for mid, f in results.items():
+        m = next(mm for mm in members if mm.id == mid)
         n1 = next(n for n in nodes if n.id == m.n1)
         n2 = next(n for n in nodes if n.id == m.n2)
-        line = document.createElementNS("http://www.w3.org/2000/svg","line")
+        line = document.createElementNS("http://www.w3.org/2000/svg", "line")
         line.setAttribute("x1", n1.x); line.setAttribute("y1", n1.y)
         line.setAttribute("x2", n2.x); line.setAttribute("y2", n2.y)
-        line.setAttribute("stroke", color); line.setAttribute("stroke-width", str(2+abs(f)/10))
+        line.setAttribute("stroke", "green" if f >= 0 else "red")
+        line.setAttribute("stroke-width", str(2 + abs(f) / 10))
         canvas.appendChild(line)
 
 document.getElementById("solve").addEventListener("click", do_solve)
