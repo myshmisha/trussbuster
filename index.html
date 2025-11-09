@@ -1,21 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Truss Drawer — Click & Drag</title>
-<style>
-  body { font-family:sans-serif; text-align:center; background:#fafafa; margin:0; }
-  #toolbar { margin:10px; }
-  #canvas-wrapper { display:flex; justify-content:center; }
-  svg { background:white; border:1px solid #ccc; cursor:crosshair; }
-  button { margin:0 5px; padding:6px 12px; }
-</style>
+  <meta charset="UTF-8">
+  <title>Truss Drawer — Grid + Drag Lines</title>
+  <style>
+    body { font-family:sans-serif; text-align:center; background:#fafafa; margin:0; }
+    #toolbar { margin:10px; }
+    #canvas-wrapper { display:flex; justify-content:center; }
+    svg { background:white; border:1px solid #ccc; cursor:crosshair; }
+    button { margin:0 5px; padding:6px 12px; }
+  </style>
 </head>
 <body>
-<h2>Interactive Truss Drawer (Click & Drag with Grid Snap)</h2>
+<h2>Interactive Truss Drawer (Grid Snap + Drag to Draw)</h2>
+
 <div id="toolbar">
   <button id="clear">Clear</button>
 </div>
+
 <div id="canvas-wrapper">
   <svg id="canvas" width="800" height="500"></svg>
 </div>
@@ -23,15 +25,40 @@
 <script>
 const canvas = document.getElementById("canvas");
 const GRID = 20;
-let nodes = [];
-let members = [];
+
+let nodes = [];        // {id,x,y}
+let members = [];      // {n1,n2}
 let drawing = false;
 let startNode = null;
 let tempLine = null;
 
-// --- grid setup ---
+// --- helpers ---
+function snap(v) {
+  return Math.round(v / GRID) * GRID;
+}
+
+function svgCoords(evt) {
+  // works reliably even on GitHub Pages / scrolled pages
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: evt.clientX - rect.left,
+    y: evt.clientY - rect.top
+  };
+}
+
+function getOrCreateNode(x, y) {
+  let n = nodes.find(p => p.x === x && p.y === y);
+  if (n) return n;
+  n = { id: nodes.length, x, y };
+  nodes.push(n);
+  return n;
+}
+
+// --- grid ---
 function drawGrid() {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const w = canvas.viewBox.baseVal.width || canvas.clientWidth;
+  const h = canvas.viewBox.baseVal.height || canvas.clientHeight;
+
   for (let x = 0; x <= w; x += GRID) {
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", x); line.setAttribute("y1", 0);
@@ -47,82 +74,97 @@ function drawGrid() {
     canvas.appendChild(line);
   }
 }
+
+// set fixed viewBox so coords behave
+canvas.setAttribute("viewBox", `0 0 ${canvas.getAttribute("width")} ${canvas.getAttribute("height")}`);
 drawGrid();
 const gridCount = canvas.childNodes.length;
 
-// --- snap helper ---
-function snap(v) { return Math.round(v / GRID) * GRID; }
-
-// --- draw everything except grid ---
+// --- redraw members + nodes (keep grid) ---
 function redraw() {
   while (canvas.childNodes.length > gridCount)
     canvas.removeChild(canvas.lastChild);
 
-  // draw members
+  // members
   for (const m of members) {
     const n1 = nodes[m.n1], n2 = nodes[m.n2];
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", n1.x); line.setAttribute("y1", n1.y);
     line.setAttribute("x2", n2.x); line.setAttribute("y2", n2.y);
-    line.setAttribute("stroke", "#000"); line.setAttribute("stroke-width", "2");
+    line.setAttribute("stroke", "#000");
+    line.setAttribute("stroke-width", "2");
     canvas.appendChild(line);
   }
 
-  // draw nodes
+  // nodes
   for (const n of nodes) {
     const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     c.setAttribute("cx", n.x); c.setAttribute("cy", n.y);
-    c.setAttribute("r", 4); c.setAttribute("fill", "#d00");
+    c.setAttribute("r", 4);
+    c.setAttribute("fill", "#d00");
     canvas.appendChild(c);
   }
 }
 
-// --- event handlers ---
-canvas.addEventListener("mousedown", e => {
-  const x = snap(e.offsetX), y = snap(e.offsetY);
-  startNode = getOrCreateNode(x, y);
+// --- mouse events ---
+canvas.addEventListener("mousedown", (evt) => {
+  const {x, y} = svgCoords(evt);
+  const sx = snap(x), sy = snap(y);
+
+  startNode = getOrCreateNode(sx, sy);
   drawing = true;
 
-  // show temporary line
   tempLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  tempLine.setAttribute("x1", x); tempLine.setAttribute("y1", y);
-  tempLine.setAttribute("x2", x); tempLine.setAttribute("y2", y);
+  tempLine.setAttribute("x1", sx);
+  tempLine.setAttribute("y1", sy);
+  tempLine.setAttribute("x2", sx);
+  tempLine.setAttribute("y2", sy);
   tempLine.setAttribute("stroke", "#00f");
   tempLine.setAttribute("stroke-width", "1.5");
+  tempLine.setAttribute("stroke-dasharray", "4 3");
   canvas.appendChild(tempLine);
 });
 
-canvas.addEventListener("mousemove", e => {
+canvas.addEventListener("mousemove", (evt) => {
   if (!drawing || !tempLine) return;
-  tempLine.setAttribute("x2", snap(e.offsetX));
-  tempLine.setAttribute("y2", snap(e.offsetY));
+  const {x, y} = svgCoords(evt);
+  tempLine.setAttribute("x2", snap(x));
+  tempLine.setAttribute("y2", snap(y));
 });
 
-canvas.addEventListener("mouseup", e => {
+canvas.addEventListener("mouseup", (evt) => {
   if (!drawing) return;
   drawing = false;
-  const endNode = getOrCreateNode(snap(e.offsetX), snap(e.offsetY));
-  if (startNode && endNode && startNode.id !== endNode.id) {
-    members.push({ n1:startNode.id, n2:endNode.id });
+
+  const {x, y} = svgCoords(evt);
+  const ex = snap(x), ey = snap(y);
+  const endNode = getOrCreateNode(ex, ey);
+
+  if (tempLine) {
+    canvas.removeChild(tempLine);
+    tempLine = null;
   }
-  if (tempLine) canvas.removeChild(tempLine);
-  tempLine = null;
+
+  if (startNode && endNode && startNode.id !== endNode.id) {
+    const exists = members.some(m =>
+      (m.n1 === startNode.id && m.n2 === endNode.id) ||
+      (m.n1 === endNode.id && m.n2 === startNode.id)
+    );
+    if (!exists) {
+      members.push({ n1: startNode.id, n2: endNode.id });
+    }
+  }
+
+  startNode = null;
   redraw();
 });
 
-// --- utility ---
-function getOrCreateNode(x, y) {
-  let existing = nodes.find(n => n.x===x && n.y===y);
-  if (existing) return existing;
-  const node = { id:nodes.length, x, y };
-  nodes.push(node);
-  return node;
-}
-
-// --- clear ---
+// Clear
 document.getElementById("clear").onclick = () => {
   nodes = [];
   members = [];
+  startNode = null;
+  tempLine = null;
   redraw();
 };
 
