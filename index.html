@@ -2,121 +2,112 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Interactive Truss Drawer & Solver</title>
+<title>Truss Drawer (Grid + Snap)</title>
 <style>
-  body { font-family: sans-serif; text-align:center; background:#fafafa; }
-  #canvas { border:1px solid #ccc; margin-top:10px; background:white; }
-  #toolbar { margin-bottom:10px; }
-  button { margin: 0 5px; padding:6px 12px; }
+  body { font-family:sans-serif; text-align:center; background:#fafafa; margin:0; }
+  #toolbar { margin:10px; }
+  #canvas-wrapper { display:flex; justify-content:center; }
+  svg { background:white; border:1px solid #ccc; cursor:crosshair; }
+  button { margin:0 5px; padding:6px 12px; }
 </style>
-<script type="text/javascript" src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
 </head>
 <body>
-  <h2>Interactive Truss Drawer & Solver</h2>
+  <h2>Interactive Truss Drawer (Grid Snap)</h2>
   <div id="toolbar">
     <button id="add-node">Add Node</button>
     <button id="add-member">Add Member</button>
-    <button id="solve">Solve</button>
+    <button id="clear">Clear</button>
   </div>
-  <svg id="canvas" width="800" height="400"></svg>
+  <div id="canvas-wrapper">
+    <svg id="canvas" width="800" height="500"></svg>
+  </div>
 
-<script type="text/javascript">
-let pyodideReady = (async () => {
-    window.pyodide = await loadPyodide();
-    await pyodide.loadPackage("numpy");
-    await pyodide.runPythonAsync(`
-from dataclasses import dataclass
-import numpy as np
-
-@dataclass
-class Node:
-    id: int
-    x: float
-    y: float
-
-@dataclass
-class Member:
-    id: int
-    n1: int
-    n2: int
-
-def solve_truss(nodes, members):
-    forces = {}
-    if not members:
-        return forces
-    F_total = 1000.0
-    for m in members:
-        n1 = next(n for n in nodes if n.id == m.n1)
-        n2 = next(n for n in nodes if n.id == m.n2)
-        L = ((n2.x-n1.x)**2 + (n2.y-n1.y)**2)**0.5
-        forces[m.id] = (F_total / len(members)) * (1 if (n2.y < n1.y) else -1)
-    return forces
-`);
-    console.log("Pyodide ready");
-})();
-
+<script>
 const canvas = document.getElementById("canvas");
+const GRID = 20; // pixels per grid step
+
 let nodes = [];
 let members = [];
-let selected = null;
 let mode = null;
+let selectedNode = null;
 
-function redraw() {
-    while (canvas.firstChild) canvas.removeChild(canvas.firstChild);
-    for (const m of members) {
-        const n1 = nodes[m.n1], n2 = nodes[m.n2];
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", n1.x); line.setAttribute("y1", n1.y);
-        line.setAttribute("x2", n2.x); line.setAttribute("y2", n2.y);
-        line.setAttribute("stroke", "#000"); line.setAttribute("stroke-width", "2");
-        canvas.appendChild(line);
-    }
-    for (const n of nodes) {
-        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        c.setAttribute("cx", n.x); c.setAttribute("cy", n.y);
-        c.setAttribute("r", 6); c.setAttribute("fill", "red");
-        canvas.appendChild(c);
-    }
+// --- draw grid ---
+function drawGrid() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  for (let x = 0; x <= w; x += GRID) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", x); line.setAttribute("y1", 0);
+    line.setAttribute("x2", x); line.setAttribute("y2", h);
+    line.setAttribute("stroke", "#eee");
+    canvas.appendChild(line);
+  }
+  for (let y = 0; y <= h; y += GRID) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", 0); line.setAttribute("y1", y);
+    line.setAttribute("x2", w); line.setAttribute("y2", y);
+    line.setAttribute("stroke", "#eee");
+    canvas.appendChild(line);
+  }
 }
 
-canvas.addEventListener("click", (evt) => {
-    if (mode === "add-node") {
-        nodes.push({ id: nodes.length, x: evt.offsetX, y: evt.offsetY });
-    } else if (mode === "add-member") {
-        let hit = nodes.find(n => Math.abs(n.x - evt.offsetX) < 8 && Math.abs(n.y - evt.offsetY) < 8);
-        if (hit) {
-            if (selected == null) selected = hit;
-            else {
-                members.push({ id: members.length, n1: selected.id, n2: hit.id });
-                selected = null;
-            }
-        }
+// --- redraw members and nodes ---
+function redraw() {
+  // remove all except grid
+  while (canvas.lastChild && canvas.childNodes.length > gridCount)
+    canvas.removeChild(canvas.lastChild);
+  // members
+  for (const m of members) {
+    const n1 = nodes[m.n1], n2 = nodes[m.n2];
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", n1.x); line.setAttribute("y1", n1.y);
+    line.setAttribute("x2", n2.x); line.setAttribute("y2", n2.y);
+    line.setAttribute("stroke", "#000"); line.setAttribute("stroke-width", "2");
+    canvas.appendChild(line);
+  }
+  // nodes
+  for (const n of nodes) {
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("cx", n.x); c.setAttribute("cy", n.y);
+    c.setAttribute("r", 5);
+    c.setAttribute("fill", selectedNode && selectedNode.id===n.id ? "#00f" : "#d00");
+    canvas.appendChild(c);
+  }
+}
+
+// --- snap function ---
+function snap(v) { return Math.round(v / GRID) * GRID; }
+
+// --- click handler ---
+canvas.addEventListener("click", evt => {
+  const x = snap(evt.offsetX), y = snap(evt.offsetY);
+  if (mode === "add-node") {
+    if (!nodes.some(n => n.x===x && n.y===y)) {
+      nodes.push({ id:nodes.length, x, y });
     }
-    redraw();
+  } else if (mode === "add-member") {
+    // find nearest existing node
+    const hit = nodes.find(n => Math.abs(n.x - x) < 8 && Math.abs(n.y - y) < 8);
+    if (hit) {
+      if (!selectedNode) selectedNode = hit;
+      else {
+        if (selectedNode.id !== hit.id) {
+          members.push({ n1:selectedNode.id, n2:hit.id });
+        }
+        selectedNode = null;
+      }
+    }
+  }
+  redraw();
 });
 
-document.getElementById("add-node").onclick = () => mode = "add-node";
-document.getElementById("add-member").onclick = () => mode = "add-member";
+// --- toolbar actions ---
+document.getElementById("add-node").onclick = () => { mode="add-node"; selectedNode=null; };
+document.getElementById("add-member").onclick = () => { mode="add-member"; selectedNode=null; };
+document.getElementById("clear").onclick = () => { nodes=[]; members=[]; selectedNode=null; redraw(); };
 
-document.getElementById("solve").onclick = async () => {
-    await pyodideReady;
-    const pyNodes = nodes.map(n => `Node(${n.id},${n.x},${n.y})`);
-    const pyMembers = members.map(m => `Member(${m.id},${m.n1},${m.n2})`);
-    pyodide.globals.set("nodes", pyodide.runPython(`[${pyNodes.join(',')}]`));
-    pyodide.globals.set("members", pyodide.runPython(`[${pyMembers.join(',')}]`));
-    const results = pyodide.runPython("solve_truss(nodes, members)");
-    redraw();
-    for (const [mid, f] of results.toJs().entries()) {
-        const m = members[mid];
-        const n1 = nodes[m.n1], n2 = nodes[m.n2];
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", n1.x); line.setAttribute("y1", n1.y);
-        line.setAttribute("x2", n2.x); line.setAttribute("y2", n2.y);
-        line.setAttribute("stroke", f >= 0 ? "green" : "red");
-        line.setAttribute("stroke-width", String(2 + Math.abs(f) / 10));
-        canvas.appendChild(line);
-    }
-};
+// init grid
+drawGrid();
+const gridCount = canvas.childNodes.length; // remember grid line count
 </script>
 </body>
 </html>
