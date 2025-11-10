@@ -1,170 +1,218 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Truss Drawer — Grid + Drag Lines</title>
-  <style>
-    body { font-family:sans-serif; text-align:center; background:#fafafa; margin:0; }
-    #toolbar { margin:10px; }
-    #canvas-wrapper { display:flex; justify-content:center; }
-    svg { background:white; border:1px solid #ccc; cursor:crosshair; }
-    button { margin:0 5px; padding:6px 12px; }
-  </style>
+<meta charset="UTF-8">
+<title>Truss Drawer + Forces + Floor</title>
+<style>
+  body { font-family:sans-serif; text-align:center; background:#fafafa; margin:0; }
+  #toolbar { margin:10px; }
+  #canvas-wrapper { display:flex; justify-content:center; }
+  svg { background:white; border:1px solid #ccc; cursor:crosshair; }
+  button { margin:0 5px; padding:6px 12px; }
+</style>
 </head>
 <body>
-<h2>Interactive Truss Drawer (Grid Snap + Drag to Draw)</h2>
-
+<h2>Truss Drawer (Click–Drag + Select + Forces + Floor)</h2>
 <div id="toolbar">
+  <button id="draw">Draw</button>
+  <button id="force">Add Force</button>
   <button id="clear">Clear</button>
 </div>
-
 <div id="canvas-wrapper">
-  <svg id="canvas" width="800" height="500"></svg>
+  <svg id="canvas" width="900" height="500"></svg>
 </div>
 
 <script>
 const canvas = document.getElementById("canvas");
 const GRID = 20;
-
-let nodes = [];        // {id,x,y}
-let members = [];      // {n1,n2}
+let nodes = [];
+let members = [];
+let forces = [];
 let drawing = false;
 let startNode = null;
 let tempLine = null;
+let mode = "draw";
+const FLOOR_Y = 460; // floor height in px
 
-// --- helpers ---
-function snap(v) {
-  return Math.round(v / GRID) * GRID;
-}
-
+function snap(v) { return Math.round(v / GRID) * GRID; }
 function svgCoords(evt) {
-  // works reliably even on GitHub Pages / scrolled pages
   const rect = canvas.getBoundingClientRect();
-  return {
-    x: evt.clientX - rect.left,
-    y: evt.clientY - rect.top
-  };
+  return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
 }
-
-function getOrCreateNode(x, y) {
-  let n = nodes.find(p => p.x === x && p.y === y);
-  if (n) return n;
-  n = { id: nodes.length, x, y };
+function getOrCreateNode(x,y){
+  let n = nodes.find(p=>p.x===x && p.y===y);
+  if(n) return n;
+  n = {id:nodes.length, x,y};
   nodes.push(n);
   return n;
 }
-
-// --- grid ---
-function drawGrid() {
-  const w = canvas.viewBox.baseVal.width || canvas.clientWidth;
-  const h = canvas.viewBox.baseVal.height || canvas.clientHeight;
-
-  for (let x = 0; x <= w; x += GRID) {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", x); line.setAttribute("y1", 0);
-    line.setAttribute("x2", x); line.setAttribute("y2", h);
-    line.setAttribute("stroke", "#eee");
-    canvas.appendChild(line);
+function drawGrid(){
+  const w = +canvas.getAttribute("width");
+  const h = +canvas.getAttribute("height");
+  for(let x=0;x<=w;x+=GRID){
+    const l=document.createElementNS("http://www.w3.org/2000/svg","line");
+    l.setAttribute("x1",x);l.setAttribute("y1",0);
+    l.setAttribute("x2",x);l.setAttribute("y2",h);
+    l.setAttribute("stroke","#eee");
+    canvas.appendChild(l);
   }
-  for (let y = 0; y <= h; y += GRID) {
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", 0); line.setAttribute("y1", y);
-    line.setAttribute("x2", w); line.setAttribute("y2", y);
-    line.setAttribute("stroke", "#eee");
-    canvas.appendChild(line);
+  for(let y=0;y<=h;y+=GRID){
+    const l=document.createElementNS("http://www.w3.org/2000/svg","line");
+    l.setAttribute("x1",0);l.setAttribute("y1",y);
+    l.setAttribute("x2",w);l.setAttribute("y2",y);
+    l.setAttribute("stroke","#eee");
+    canvas.appendChild(l);
   }
+  // floor
+  const floor=document.createElementNS("http://www.w3.org/2000/svg","line");
+  floor.setAttribute("x1",0); floor.setAttribute("y1",FLOOR_Y);
+  floor.setAttribute("x2",w); floor.setAttribute("y2",FLOOR_Y);
+  floor.setAttribute("stroke","#444"); floor.setAttribute("stroke-width","3");
+  canvas.appendChild(floor);
 }
-
-// set fixed viewBox so coords behave
-canvas.setAttribute("viewBox", `0 0 ${canvas.getAttribute("width")} ${canvas.getAttribute("height")}`);
 drawGrid();
-const gridCount = canvas.childNodes.length;
+const gridCount=canvas.childNodes.length;
 
-// --- redraw members + nodes (keep grid) ---
-function redraw() {
-  while (canvas.childNodes.length > gridCount)
-    canvas.removeChild(canvas.lastChild);
+function redraw(){
+  while(canvas.childNodes.length>gridCount) canvas.removeChild(canvas.lastChild);
 
   // members
-  for (const m of members) {
-    const n1 = nodes[m.n1], n2 = nodes[m.n2];
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", n1.x); line.setAttribute("y1", n1.y);
-    line.setAttribute("x2", n2.x); line.setAttribute("y2", n2.y);
-    line.setAttribute("stroke", "#000");
-    line.setAttribute("stroke-width", "2");
-    canvas.appendChild(line);
+  for(const m of members){
+    const n1=nodes[m.n1], n2=nodes[m.n2];
+    const l=document.createElementNS("http://www.w3.org/2000/svg","line");
+    l.setAttribute("x1",n1.x); l.setAttribute("y1",n1.y);
+    l.setAttribute("x2",n2.x); l.setAttribute("y2",n2.y);
+    l.setAttribute("stroke","#000"); l.setAttribute("stroke-width","2");
+    l.dataset.mid=m.id;
+    canvas.appendChild(l);
   }
 
   // nodes
-  for (const n of nodes) {
-    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    c.setAttribute("cx", n.x); c.setAttribute("cy", n.y);
-    c.setAttribute("r", 4);
-    c.setAttribute("fill", "#d00");
+  for(const n of nodes){
+    const c=document.createElementNS("http://www.w3.org/2000/svg","circle");
+    c.setAttribute("cx",n.x); c.setAttribute("cy",n.y);
+    c.setAttribute("r",4); c.setAttribute("fill","#d00");
     canvas.appendChild(c);
   }
-}
 
-// --- mouse events ---
-canvas.addEventListener("mousedown", (evt) => {
-  const {x, y} = svgCoords(evt);
-  const sx = snap(x), sy = snap(y);
-
-  startNode = getOrCreateNode(sx, sy);
-  drawing = true;
-
-  tempLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  tempLine.setAttribute("x1", sx);
-  tempLine.setAttribute("y1", sy);
-  tempLine.setAttribute("x2", sx);
-  tempLine.setAttribute("y2", sy);
-  tempLine.setAttribute("stroke", "#00f");
-  tempLine.setAttribute("stroke-width", "1.5");
-  tempLine.setAttribute("stroke-dasharray", "4 3");
-  canvas.appendChild(tempLine);
-});
-
-canvas.addEventListener("mousemove", (evt) => {
-  if (!drawing || !tempLine) return;
-  const {x, y} = svgCoords(evt);
-  tempLine.setAttribute("x2", snap(x));
-  tempLine.setAttribute("y2", snap(y));
-});
-
-canvas.addEventListener("mouseup", (evt) => {
-  if (!drawing) return;
-  drawing = false;
-
-  const {x, y} = svgCoords(evt);
-  const ex = snap(x), ey = snap(y);
-  const endNode = getOrCreateNode(ex, ey);
-
-  if (tempLine) {
-    canvas.removeChild(tempLine);
-    tempLine = null;
-  }
-
-  if (startNode && endNode && startNode.id !== endNode.id) {
-    const exists = members.some(m =>
-      (m.n1 === startNode.id && m.n2 === endNode.id) ||
-      (m.n1 === endNode.id && m.n2 === startNode.id)
-    );
-    if (!exists) {
-      members.push({ n1: startNode.id, n2: endNode.id });
+  // selected dots
+  for(const m of members){
+    if(m.selected){
+      const midx=(nodes[m.n1].x+nodes[m.n2].x)/2;
+      const midy=(nodes[m.n1].y+nodes[m.n2].y)/2;
+      const dot=document.createElementNS("http://www.w3.org/2000/svg","circle");
+      dot.setAttribute("cx",midx);
+      dot.setAttribute("cy",midy);
+      dot.setAttribute("r",5);
+      dot.setAttribute("fill","#00f");
+      canvas.appendChild(dot);
     }
   }
 
-  startNode = null;
-  redraw();
+  // forces
+  for(const f of forces){
+    drawForceArrow(f.x, f.y, f.fx, f.fy);
+  }
+}
+
+function drawForceArrow(x,y,fx,fy){
+  const len=Math.sqrt(fx*fx+fy*fy);
+  const scale=30/len;
+  const x2=x+fx*scale;
+  const y2=y+fy*scale;
+  const line=document.createElementNS("http://www.w3.org/2000/svg","line");
+  line.setAttribute("x1",x); line.setAttribute("y1",y);
+  line.setAttribute("x2",x2); line.setAttribute("y2",y2);
+  line.setAttribute("stroke","red"); line.setAttribute("stroke-width","2");
+  canvas.appendChild(line);
+  const head=document.createElementNS("http://www.w3.org/2000/svg","polygon");
+  const ang=Math.atan2(fy,fx);
+  const p1=[x2,y2];
+  const p2=[x2-6*Math.cos(ang-Math.PI/6), y2-6*Math.sin(ang-Math.PI/6)];
+  const p3=[x2-6*Math.cos(ang+Math.PI/6), y2-6*Math.sin(ang+Math.PI/6)];
+  head.setAttribute("points",`${p1} ${p2} ${p3}`);
+  head.setAttribute("fill","red");
+  canvas.appendChild(head);
+}
+
+// --- events ---
+canvas.addEventListener("mousedown", evt=>{
+  const {x,y}=svgCoords(evt);
+  const sx=snap(x), sy=snap(y);
+  if(mode==="draw"){
+    startNode=getOrCreateNode(sx,sy);
+    drawing=true;
+    tempLine=document.createElementNS("http://www.w3.org/2000/svg","line");
+    tempLine.setAttribute("x1",sx); tempLine.setAttribute("y1",sy);
+    tempLine.setAttribute("x2",sx); tempLine.setAttribute("y2",sy);
+    tempLine.setAttribute("stroke","#00f");
+    tempLine.setAttribute("stroke-dasharray","4 3");
+    canvas.appendChild(tempLine);
+  }
 });
 
-// Clear
-document.getElementById("clear").onclick = () => {
-  nodes = [];
-  members = [];
-  startNode = null;
-  tempLine = null;
+canvas.addEventListener("mousemove", evt=>{
+  if(!drawing || !tempLine) return;
+  const {x,y}=svgCoords(evt);
+  tempLine.setAttribute("x2",snap(x));
+  tempLine.setAttribute("y2",snap(y));
+});
+
+canvas.addEventListener("mouseup", evt=>{
+  const {x,y}=svgCoords(evt);
+  const ex=snap(x), ey=snap(y);
+  if(mode==="draw" && drawing){
+    drawing=false;
+    if(tempLine){ canvas.removeChild(tempLine); tempLine=null; }
+    const endNode=getOrCreateNode(ex,ey);
+    if(startNode && endNode && startNode.id!==endNode.id){
+      members.push({id:members.length, n1:startNode.id, n2:endNode.id});
+    }
+    startNode=null;
+    redraw();
+  }
+});
+
+canvas.addEventListener("click", evt=>{
+  const {x,y}=svgCoords(evt);
+  if(mode==="force"){
+    // find closest node within radius 10
+    const n=nodes.find(n=>Math.hypot(n.x-x,n.y-y)<10);
+    if(n){
+      forces.push({x:n.x, y:n.y, fx:0, fy:50}); // downward force
+      redraw();
+      return;
+    }
+  }
+
+  // toggle member selection
+  const clickedMember = members.find(m=>{
+    const n1=nodes[m.n1], n2=nodes[m.n2];
+    const dist=pointLineDistance(x,y,n1.x,n1.y,n2.x,n2.y);
+    return dist<5;
+  });
+  if(clickedMember){
+    clickedMember.selected=!clickedMember.selected;
+    redraw();
+  }
+});
+
+function pointLineDistance(px,py,x1,y1,x2,y2){
+  const A=px-x1, B=py-y1, C=x2-x1, D=y2-y1;
+  const dot=A*C+B*D;
+  const len_sq=C*C+D*D;
+  let t=(len_sq!==0)? dot/len_sq : -1;
+  if(t<0)t=0; else if(t>1)t=1;
+  const xx=x1+t*C, yy=y1+t*D;
+  return Math.hypot(px-xx,py-yy);
+}
+
+// --- toolbar ---
+document.getElementById("draw").onclick=()=>{mode="draw";};
+document.getElementById("force").onclick=()=>{mode="force";};
+document.getElementById("clear").onclick=()=>{
+  nodes=[]; members=[]; forces=[];
+  startNode=null; tempLine=null;
   redraw();
 };
 
